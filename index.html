@@ -1,0 +1,1207 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="SHARP 3D" />
+  <title>SHARP 3D Head-Tracking Viewer</title>
+  <style>
+    * {
+      box-sizing: border-box;
+      -webkit-tap-highlight-color: transparent;
+      user-select: none;
+      -webkit-user-select: none;
+    }
+    html, body {
+      margin: 0;
+      padding: 0;
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      background: #0b0d12;
+      color: #f2f4f8;
+      font-family: -apple-system, BlinkMacSystemFont, "Hiragino Sans", "SF Pro Text", sans-serif;
+    }
+    #glCanvas {
+      position: fixed;
+      inset: 0;
+      width: 100vw;
+      height: 100vh;
+      display: block;
+      touch-action: none;
+    }
+    #camVideo {
+      position: fixed;
+      width: 1px;
+      height: 1px;
+      opacity: 0;
+      pointer-events: none;
+    }
+    /* 画面上部のステータス＆クイック操作バー */
+    #topBar {
+      position: fixed;
+      top: max(12px, env(safe-area-inset-top));
+      left: 12px;
+      right: 12px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      z-index: 20;
+      pointer-events: none;
+    }
+    .pill {
+      pointer-events: auto;
+      background: rgba(20, 24, 34, 0.78);
+      backdrop-filter: blur(14px);
+      -webkit-backdrop-filter: blur(14px);
+      border: 1px solid rgba(255, 255, 255, 0.14);
+      border-radius: 999px;
+      padding: 8px 14px;
+      font-size: 12px;
+      font-weight: 600;
+      color: #fff;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      cursor: pointer;
+    }
+    .pill:active {
+      transform: scale(0.96);
+    }
+    /* パネル非表示時の復帰ボタン */
+    #unhideBtn {
+      position: fixed;
+      bottom: max(18px, env(safe-area-inset-bottom));
+      right: 16px;
+      z-index: 30;
+      display: none;
+      opacity: 0.45;
+    }
+    #unhideBtn:active {
+      opacity: 1;
+    }
+    /* 下部コントロールシート */
+    #controlPanel {
+      position: fixed;
+      left: 12px;
+      right: 12px;
+      bottom: max(12px, env(safe-area-inset-bottom));
+      max-height: 54vh;
+      overflow-y: auto;
+      -webkit-overflow-scrolling: touch;
+      background: rgba(18, 22, 31, 0.84);
+      backdrop-filter: blur(18px);
+      -webkit-backdrop-filter: blur(18px);
+      border: 1px solid rgba(255, 255, 255, 0.14);
+      border-radius: 20px;
+      padding: 14px;
+      z-index: 20;
+      transition: transform 0.25s ease, opacity 0.25s ease;
+    }
+    #controlPanel.hidden {
+      transform: translateY(120%);
+      opacity: 0;
+      pointer-events: none;
+    }
+    .btn-row {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+      margin-bottom: 10px;
+    }
+    .btn {
+      background: rgba(255, 255, 255, 0.1);
+      border: 1px solid rgba(255, 255, 255, 0.12);
+      border-radius: 12px;
+      color: #fff;
+      font-size: 13px;
+      font-weight: 600;
+      padding: 10px 12px;
+      text-align: center;
+      cursor: pointer;
+    }
+    .btn.primary {
+      background: #2563eb;
+      border-color: #3b82f6;
+    }
+    .btn:active {
+      opacity: 0.75;
+    }
+    details {
+      background: rgba(255, 255, 255, 0.04);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      border-radius: 14px;
+      padding: 10px 12px;
+      margin-bottom: 8px;
+    }
+    summary {
+      font-size: 13px;
+      font-weight: 700;
+      cursor: pointer;
+      list-style: none;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    summary::-webkit-details-marker {
+      display: none;
+    }
+    .section-body {
+      margin-top: 10px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+    .slider-row {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      font-size: 12px;
+      color: #cbd5e1;
+    }
+    .slider-head {
+      display: flex;
+      justify-content: space-between;
+    }
+    input[type="range"] {
+      width: 100%;
+      accent-color: #3b82f6;
+    }
+    .switch-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-size: 13px;
+    }
+    input[type="checkbox"] {
+      width: 20px;
+      height: 20px;
+      accent-color: #3b82f6;
+    }
+    /* サムネイルギャラリー */
+    #thumbStrip {
+      display: flex;
+      gap: 8px;
+      overflow-x: auto;
+      padding-bottom: 4px;
+    }
+    .thumb-card {
+      flex: 0 0 104px;
+      background: rgba(0, 0, 0, 0.45);
+      border: 2px solid transparent;
+      border-radius: 10px;
+      overflow: hidden;
+      cursor: pointer;
+    }
+    .thumb-card.active {
+      border-color: #3b82f6;
+    }
+    .thumb-card img {
+      width: 100%;
+      height: 66px;
+      object-fit: cover;
+      display: block;
+      background: #141820;
+    }
+    .thumb-card span {
+      display: block;
+      font-size: 10px;
+      padding: 4px 6px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      color: #e2e8f0;
+    }
+    /* 初回ウェルカム案内 */
+    #emptyOverlay {
+      position: fixed;
+      inset: 0;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      text-align: center;
+      padding: 24px;
+      z-index: 10;
+      pointer-events: none;
+    }
+    #emptyOverlay .card {
+      pointer-events: auto;
+      background: rgba(20, 24, 34, 0.85);
+      backdrop-filter: blur(16px);
+      -webkit-backdrop-filter: blur(16px);
+      border: 1px solid rgba(255, 255, 255, 0.15);
+      border-radius: 22px;
+      padding: 24px 20px;
+      max-width: 340px;
+    }
+    #emptyOverlay h2 {
+      margin: 0 0 8px;
+      font-size: 18px;
+    }
+    #emptyOverlay p {
+      margin: 0 0 16px;
+      font-size: 13px;
+      line-height: 1.5;
+      color: #94a3b8;
+    }
+  </style>
+</head>
+<body>
+  <canvas id="glCanvas"></canvas>
+  <video id="camVideo" autoplay playsinline muted></video>
+
+  <div id="topBar">
+    <div id="statusBadge" class="pill">⏳ カメラ準備中...</div>
+    <button id="hideUiBtn" class="pill">👁️ 隠す</button>
+  </div>
+
+  <button id="unhideBtn" class="pill">⚙️ メニュー表示</button>
+
+  <div id="emptyOverlay">
+    <div class="card">
+      <h2>SHARP 3D ビューアー</h2>
+      <p>Mac の ml-sharp で作成した <b>.ply</b> ファイルを AirDrop 等で iPhone に送り、下のボタンから選択してください。</p>
+      <button id="welcomePickBtn" class="btn primary" style="width:100%;">📂 .ply ファイルを選択（複数可）</button>
+    </div>
+  </div>
+
+  <input id="fileInput" type="file" accept=".ply" multiple style="display:none;" />
+
+  <div id="controlPanel">
+    <div class="btn-row">
+      <button id="pickBtn" class="btn primary">📂 .ply を開く</button>
+      <button id="calBtn" class="btn">📍 正面基準リセット</button>
+    </div>
+
+    <details open>
+      <summary>🖼️ モデル切り替え (イメージ図) <span>▼</span></summary>
+      <div class="section-body">
+        <div id="thumbStrip"></div>
+        <div class="btn-row" style="margin-bottom:0;">
+          <button id="prevBtn" class="btn">◀ 前のモデル</button>
+          <button id="nextBtn" class="btn">次のモデル ▶</button>
+        </div>
+      </div>
+    </details>
+
+    <details>
+      <summary>👁️ ヘッドトラッキング設定 <span>▼</span></summary>
+      <div class="section-body">
+        <label class="switch-row">
+          <span>ヘッドトラッキング有効</span>
+          <input id="htEnable" type="checkbox" checked />
+        </label>
+        <div class="slider-row">
+          <div class="slider-head"><span>立体視の強さ (視差)</span><span id="gainVal">1.00</span></div>
+          <input id="htGain" type="range" min="0.2" max="2.5" step="0.05" value="1.0" />
+        </div>
+        <div class="slider-row">
+          <div class="slider-head"><span>画面ガラス面の奥行き</span><span id="winVal">0.75</span></div>
+          <input id="htWindow" type="range" min="0.1" max="1.2" step="0.05" value="0.75" />
+        </div>
+        <div class="slider-row">
+          <div class="slider-head"><span>なめらかさ</span><span id="smoothVal">1.0</span></div>
+          <input id="htSmooth" type="range" min="0.2" max="3.0" step="0.1" value="1.0" />
+        </div>
+      </div>
+    </details>
+
+    <details>
+      <summary>🎨 ビジュアル・エフェクト <span>▼</span></summary>
+      <div class="section-body">
+        <div class="slider-row">
+          <div class="slider-head"><span>粒の大きさ (Splat Size)</span><span id="scaleVal">1.00</span></div>
+          <input id="splatScale" type="range" min="0.1" max="3.0" step="0.05" value="1.0" />
+        </div>
+        <div class="slider-row">
+          <div class="slider-head"><span>濃さ (Opacity)</span><span id="opacityVal">1.00</span></div>
+          <input id="splatOpacity" type="range" min="0.1" max="2.0" step="0.05" value="1.0" />
+        </div>
+        <div class="slider-row">
+          <div class="slider-head"><span>背景カット (奥行き%)</span><span id="clipVal">100%</span></div>
+          <input id="depthClip" type="range" min="10" max="100" step="1" value="100" />
+        </div>
+        <div class="btn-row" style="margin-bottom:0;">
+          <button id="pcModeBtn" class="btn">✨ 点群モード</button>
+          <button id="resetFxBtn" class="btn">🔄 標準に戻す</button>
+        </div>
+      </div>
+    </details>
+
+    <details>
+      <summary>🎥 自動アニメーション・視点 <span>▼</span></summary>
+      <div class="section-body">
+        <label class="switch-row">
+          <span>自動ゆらゆら回転 (3D効果)</span>
+          <input id="spinEnable" type="checkbox" />
+        </label>
+        <div class="slider-row">
+          <div class="slider-head"><span>回転スピード</span><span id="spinVal">1.0</span></div>
+          <input id="spinSpeed" type="range" min="0.2" max="3.0" step="0.1" value="1.0" />
+        </div>
+        <button id="resetViewBtn" class="btn">🎯 写真の正面にリセット</button>
+      </div>
+    </details>
+  </div>
+
+  <script type="module">
+    import { FaceLandmarker, FilesetResolver } from "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14";
+
+    // ホーム画面追加時のアプリアイコンを自動生成
+    (function createAppIcon() {
+      const c = document.createElement("canvas");
+      c.width = 180; c.height = 180;
+      const ctx = c.getContext("2d");
+      const g = ctx.createLinearGradient(0, 0, 180, 180);
+      g.addColorStop(0, "#1d4ed8");
+      g.addColorStop(1, "#0f172a");
+      ctx.fillStyle = g;
+      ctx.fillRect(0, 0, 180, 180);
+      ctx.fillStyle = "#fff";
+      ctx.font = "bold 42px -apple-system, sans-serif";
+      ctx.textAlign = "center";
+      ctx.fillText("3D", 90, 96);
+      ctx.font = "600 18px -apple-system, sans-serif";
+      ctx.fillStyle = "#93c5fd";
+      ctx.fillText("SHARP", 90, 128);
+      const link = document.createElement("link");
+      link.rel = "apple-touch-icon";
+      link.href = c.toDataURL("image/png");
+      document.head.appendChild(link);
+    })();
+
+    // --- OneEuroFilter (低遅延・ジッター除去) ---
+    class OneEuroFilter {
+      constructor(freq = 30.0, mincutoff = 1.1, beta = 0.07, dcutoff = 1.0) {
+        this.freq = freq;
+        this.mincutoff = mincutoff;
+        this.beta = beta;
+        this.dcutoff = dcutoff;
+        this.xPrev = null;
+        this.dxPrev = null;
+        this.tPrev = null;
+      }
+      reset() {
+        this.xPrev = null;
+        this.dxPrev = null;
+        this.tPrev = null;
+      }
+      alpha(cutoff) {
+        const te = 1.0 / Math.max(this.freq, 1e-3);
+        const tau = 1.0 / (2.0 * Math.PI * Math.max(cutoff, 1e-3));
+        return 1.0 / (1.0 + tau / te);
+      }
+      filter(x) {
+        const t = performance.now() * 0.001;
+        if (this.tPrev !== null) {
+          const dt = t - this.tPrev;
+          if (dt > 0) this.freq = 1.0 / dt;
+        }
+        this.tPrev = t;
+        if (!this.xPrev) {
+          this.xPrev = [...x];
+          this.dxPrev = [0, 0, 0];
+          return [...x];
+        }
+        const aD = this.alpha(this.dcutoff);
+        const dx = [
+          (x[0] - this.xPrev[0]) * this.freq,
+          (x[1] - this.xPrev[1]) * this.freq,
+          (x[2] - this.xPrev[2]) * this.freq,
+        ];
+        const edx = [
+          aD * dx[0] + (1 - aD) * this.dxPrev[0],
+          aD * dx[1] + (1 - aD) * this.dxPrev[1],
+          aD * dx[2] + (1 - aD) * this.dxPrev[2],
+        ];
+        const speed = Math.hypot(edx[0], edx[1], edx[2]);
+        const cutoff = this.mincutoff + this.beta * speed;
+        const a = this.alpha(cutoff);
+        const xHat = [
+          a * x[0] + (1 - a) * this.xPrev[0],
+          a * x[1] + (1 - a) * this.xPrev[1],
+          a * x[2] + (1 - a) * this.xPrev[2],
+        ];
+        this.xPrev = [...xHat];
+        this.dxPrev = [...edx];
+        return xHat;
+      }
+    }
+
+    // --- WebGL2 3D Gaussian Splatting レンダラー ---
+    const canvas = document.getElementById("glCanvas");
+    const gl = canvas.getContext("webgl2", { antialias: false, alpha: false, powerPreference: "high-performance" });
+
+    const VS_SRC = `#version 300 es
+    precision highp float;
+    precision highp int;
+
+    layout(location = 0) in vec2 a_quad;
+    layout(location = 1) in uint a_index;
+
+    uniform highp sampler2D u_posTex;
+    uniform highp sampler2D u_covATex;
+    uniform highp sampler2D u_covBTex;
+    uniform sampler2D u_colTex;
+
+    uniform mat4 u_view;
+    uniform mat4 u_proj;
+    uniform vec2 u_focal;
+    uniform vec2 u_viewport;
+    uniform float u_splatScale;
+    uniform float u_opacityMult;
+    uniform float u_maxDist;
+
+    out vec2 v_offset;
+    out vec4 v_color;
+
+    void main() {
+      int idx = int(a_index);
+      ivec2 texCoord = ivec2(idx & 2047, idx >> 11);
+
+      vec4 posData = texelFetch(u_posTex, texCoord, 0);
+      if (posData.w > u_maxDist) {
+        gl_Position = vec4(2.0, 2.0, 2.0, 1.0);
+        return;
+      }
+
+      vec4 camPos = u_view * vec4(posData.xyz, 1.0);
+      if (camPos.z > -0.05) {
+        gl_Position = vec4(2.0, 2.0, 2.0, 1.0);
+        return;
+      }
+
+      vec3 covA = texelFetch(u_covATex, texCoord, 0).xyz * (u_splatScale * u_splatScale);
+      vec3 covB = texelFetch(u_covBTex, texCoord, 0).xyz * (u_splatScale * u_splatScale);
+      vec4 col = texelFetch(u_colTex, texCoord, 0);
+      float alpha = clamp(col.a * u_opacityMult, 0.0, 1.0);
+      if (alpha < 0.01) {
+        gl_Position = vec4(2.0, 2.0, 2.0, 1.0);
+        return;
+      }
+
+      mat3 Vrk = mat3(
+        covA.x, covA.y, covA.z,
+        covA.y, covB.x, covB.y,
+        covA.z, covB.y, covB.z
+      );
+
+      float invZ = 1.0 / camPos.z;
+      float invZ2 = invZ * invZ;
+      mat3 J = mat3(
+        u_focal.x * invZ, 0.0, 0.0,
+        0.0, u_focal.y * invZ, 0.0,
+        -u_focal.x * camPos.x * invZ2, -u_focal.y * camPos.y * invZ2, 0.0
+      );
+
+      mat3 W = mat3(u_view);
+      mat3 T = J * W;
+      mat3 cov2d = T * Vrk * transpose(T);
+
+      float a = cov2d[0][0] + 0.3;
+      float b = cov2d[0][1];
+      float c = cov2d[1][1] + 0.3;
+
+      float mid = 0.5 * (a + c);
+      float det = a * c - b * b;
+      float disc = sqrt(max(0.1, mid * mid - det));
+      float lambda1 = mid + disc;
+      float lambda2 = max(0.1, mid - disc);
+
+      vec2 eigvec1 = abs(b) < 1e-6
+        ? (a >= c ? vec2(1.0, 0.0) : vec2(0.0, 1.0))
+        : normalize(vec2(b, lambda1 - a));
+      vec2 eigvec2 = vec2(-eigvec1.y, eigvec1.x);
+
+      vec2 majorAxis = min(sqrt(2.0 * lambda1), 1024.0) * eigvec1;
+      vec2 minorAxis = min(sqrt(2.0 * lambda2), 1024.0) * eigvec2;
+
+      vec4 clip = u_proj * camPos;
+      vec2 ndcOffset = (a_quad.x * majorAxis + a_quad.y * minorAxis) / (u_viewport * 0.5);
+
+      v_offset = a_quad;
+      v_color = vec4(col.rgb, alpha);
+      gl_Position = vec4(clip.xy / clip.w + ndcOffset, clip.z / clip.w, 1.0);
+    }`;
+
+    const FS_SRC = `#version 300 es
+    precision mediump float;
+    in vec2 v_offset;
+    in vec4 v_color;
+    out vec4 outColor;
+
+    void main() {
+      float r2 = dot(v_offset, v_offset);
+      if (r2 > 4.0) discard;
+      float a = v_color.a * exp(-0.5 * r2);
+      if (a < 0.004) discard;
+      outColor = vec4(v_color.rgb * a, a);
+    }`;
+
+    function compileShader(type, src) {
+      const s = gl.createShader(type);
+      gl.shaderSource(s, src);
+      gl.compileShader(s);
+      if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) {
+        console.error(gl.getShaderInfoLog(s));
+      }
+      return s;
+    }
+
+    const prog = gl.createProgram();
+    gl.attachShader(prog, compileShader(gl.VERTEX_SHADER, VS_SRC));
+    gl.attachShader(prog, compileShader(gl.FRAGMENT_SHADER, FS_SRC));
+    gl.linkProgram(prog);
+    gl.useProgram(prog);
+
+    const vao = gl.createVertexArray();
+    gl.bindVertexArray(vao);
+
+    const quadBuf = gl.createBuffer();
+    gl.bindBuffer(gl.ARRAY_BUFFER, quadBuf);
+    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-2, -2, 2, -2, -2, 2, 2, 2]), gl.STATIC_DRAW);
+    gl.enableVertexAttribArray(0);
+    gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0);
+
+    const indexBuf = gl.createBuffer();
+    gl.bindBuffer(gl.ARRAY_BUFFER, indexBuf);
+    gl.enableVertexAttribArray(1);
+    gl.vertexAttribIPointer(1, 1, gl.UNSIGNED_INT, 0, 0);
+    gl.vertexAttribDivisor(1, 1);
+
+    const uLoc = {
+      posTex: gl.getUniformLocation(prog, "u_posTex"),
+      covATex: gl.getUniformLocation(prog, "u_covATex"),
+      covBTex: gl.getUniformLocation(prog, "u_covBTex"),
+      colTex: gl.getUniformLocation(prog, "u_colTex"),
+      view: gl.getUniformLocation(prog, "u_view"),
+      proj: gl.getUniformLocation(prog, "u_proj"),
+      focal: gl.getUniformLocation(prog, "u_focal"),
+      viewport: gl.getUniformLocation(prog, "u_viewport"),
+      splatScale: gl.getUniformLocation(prog, "u_splatScale"),
+      opacityMult: gl.getUniformLocation(prog, "u_opacityMult"),
+      maxDist: gl.getUniformLocation(prog, "u_maxDist"),
+    };
+
+    gl.uniform1i(uLoc.posTex, 0);
+    gl.uniform1i(uLoc.covATex, 1);
+    gl.uniform1i(uLoc.covBTex, 2);
+    gl.uniform1i(uLoc.colTex, 3);
+
+    gl.enable(gl.BLEND);
+    gl.blendFuncSeparate(gl.ONE, gl.ONE_MINUS_SRC_ALPHA, gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
+    gl.disable(gl.DEPTH_TEST);
+
+    // --- PLY パーサー & サムネイル生成 ---
+    function parsePlyBuffer(buffer) {
+      const headerBytes = new Uint8Array(buffer, 0, Math.min(buffer.byteLength, 8192));
+      const headerText = new TextDecoder().decode(headerBytes);
+      const endMatch = headerText.match(/end_header\r?\n/);
+      if (!endMatch) throw new Error("Invalid PLY header");
+
+      const headerEndOffset = new TextEncoder().encode(
+        headerText.slice(0, endMatch.index + endMatch[0].length)
+      ).byteLength;
+
+      const lines = headerText.slice(0, endMatch.index).split(/\r?\n/);
+      let vertexCount = 0;
+      let inVertex = false;
+      const props = {};
+      let stride = 0;
+      const typeSizes = { float: 4, float32: 4, double: 8, float64: 8, int: 4, int32: 4, uint: 4, uint32: 4, short: 2, ushort: 2, uchar: 1, uint8: 1, char: 1 };
+
+      for (const line of lines) {
+        const parts = line.trim().split(/\s+/);
+        if (parts[0] === "element") {
+          inVertex = parts[1] === "vertex";
+          if (inVertex) vertexCount = parseInt(parts[2], 10);
+        } else if (parts[0] === "property" && inVertex) {
+          const type = parts[1];
+          const name = parts[2];
+          props[name] = { offset: stride, type };
+          stride += typeSizes[type] || 4;
+        }
+      }
+
+      const dv = new DataView(buffer, headerEndOffset);
+      const readVal = (base, p) => {
+        if (!p) return 0;
+        if (p.type === "uchar" || p.type === "uint8") return dv.getUint8(base + p.offset) / 255.0;
+        if (p.type === "double" || p.type === "float64") return dv.getFloat64(base + p.offset, true);
+        return dv.getFloat32(base + p.offset, true);
+      };
+
+      const texW = 2048;
+      const texH = Math.max(1, Math.ceil(vertexCount / texW));
+      const texLen = texW * texH;
+
+      const posArr = new Float32Array(texLen * 4);
+      const covAArr = new Float32Array(texLen * 4);
+      const covBArr = new Float32Array(texLen * 4);
+      const colArr = new Uint8Array(texLen * 4);
+      const xyz = new Float32Array(vertexCount * 3);
+      const dists = new Float32Array(vertexCount);
+      const zList = [];
+
+      const C0 = 0.28209479177387814;
+
+      for (let i = 0; i < vertexCount; i++) {
+        const base = i * stride;
+        const xr = readVal(base, props.x);
+        const yr = readVal(base, props.y);
+        const zr = readVal(base, props.z);
+
+        // SHARP (X:右, Y:下, Z:奥) -> OpenGL (X:右, Y:上, Z:手前)
+        const x = xr;
+        const y = -yr;
+        const z = -zr;
+
+        xyz[i * 3] = x;
+        xyz[i * 3 + 1] = y;
+        xyz[i * 3 + 2] = z;
+
+        const d = Math.hypot(x, y, z);
+        dists[i] = d;
+        if (zr > 0.05) zList.push(zr);
+
+        posArr[i * 4] = x;
+        posArr[i * 4 + 1] = y;
+        posArr[i * 4 + 2] = z;
+        posArr[i * 4 + 3] = d;
+
+        const op = 1.0 / (1.0 + Math.exp(-readVal(base, props.opacity)));
+        const r = Math.min(1, Math.max(0, 0.5 + C0 * readVal(base, props.f_dc_0)));
+        const g = Math.min(1, Math.max(0, 0.5 + C0 * readVal(base, props.f_dc_1)));
+        const b = Math.min(1, Math.max(0, 0.5 + C0 * readVal(base, props.f_dc_2)));
+
+        colArr[i * 4] = (r * 255) | 0;
+        colArr[i * 4 + 1] = (g * 255) | 0;
+        colArr[i * 4 + 2] = (b * 255) | 0;
+        colArr[i * 4 + 3] = (op * 255) | 0;
+
+        const s0 = Math.exp(readVal(base, props.scale_0));
+        const s1 = Math.exp(readVal(base, props.scale_1));
+        const s2 = Math.exp(readVal(base, props.scale_2));
+
+        let qw = readVal(base, props.rot_0);
+        let qx = readVal(base, props.rot_1);
+        let qy = readVal(base, props.rot_2);
+        let qz = readVal(base, props.rot_3);
+        const qn = Math.hypot(qw, qx, qy, qz) || 1.0;
+        qw /= qn; qx /= qn; qy /= qn; qz /= qn;
+
+        // 回転行列 + 軸変換 diag(1, -1, -1)
+        const r00 = (1 - 2 * (qy * qy + qz * qz)) * s0;
+        const r01 = (2 * (qx * qy - qw * qz)) * s1;
+        const r02 = (2 * (qx * qz + qw * qy)) * s2;
+
+        const r10 = -(2 * (qx * qy + qw * qz)) * s0;
+        const r11 = -(1 - 2 * (qx * qx + qz * qz)) * s1;
+        const r12 = -(2 * (qy * qz - qw * qx)) * s2;
+
+        const r20 = -(2 * (qx * qz - qw * qy)) * s0;
+        const r21 = -(2 * (qy * qz + qw * qx)) * s1;
+        const r22 = -(1 - 2 * (qx * qx + qy * qy)) * s2;
+
+        covAArr[i * 4] = r00 * r00 + r01 * r01 + r02 * r02;
+        covAArr[i * 4 + 1] = r00 * r10 + r01 * r11 + r02 * r12;
+        covAArr[i * 4 + 2] = r00 * r20 + r01 * r21 + r02 * r22;
+
+        covBArr[i * 4] = r10 * r10 + r11 * r11 + r12 * r12;
+        covBArr[i * 4 + 1] = r10 * r20 + r11 * r21 + r12 * r22;
+        covBArr[i * 4 + 2] = r20 * r20 + r21 * r21 + r22 * r22;
+      }
+
+      zList.sort((a, b) => a - b);
+      const medianDepth = zList.length ? zList[Math.floor(zList.length * 0.5)] : 2.0;
+
+      const sortedDists = Float32Array.from(dists).sort();
+
+      return { vertexCount, texW, texH, posArr, covAArr, covBArr, colArr, xyz, sortedDists, medianDepth };
+    }
+
+    function renderThumbnailDataUrl(parsed) {
+      const w = 160, h = 104;
+      const c = document.createElement("canvas");
+      c.width = w; c.height = h;
+      const ctx = c.getContext("2d");
+      const img = ctx.createImageData(w, h);
+      const data = img.data;
+      for (let i = 0; i < data.length; i += 4) {
+        data[i] = 18; data[i + 1] = 22; data[i + 2] = 30; data[i + 3] = 255;
+      }
+
+      const n = parsed.vertexCount;
+      const step = Math.max(1, Math.floor(n / 25000));
+      const pts = [];
+      for (let i = 0; i < n; i += step) {
+        const z = -parsed.xyz[i * 3 + 2];
+        const a = parsed.colArr[i * 4 + 3];
+        if (z > 0.05 && a > 40) pts.push(i);
+      }
+      pts.sort((i, j) => parsed.xyz[i * 3 + 2] - parsed.xyz[j * 3 + 2]);
+
+      const focal = w * 0.85;
+      for (const i of pts) {
+        const x = parsed.xyz[i * 3];
+        const y = -parsed.xyz[i * 3 + 1];
+        const z = -parsed.xyz[i * 3 + 2];
+        const u = Math.round((x / z) * focal + w * 0.5);
+        const v = Math.round((y / z) * focal + h * 0.5);
+        if (u >= 0 && u < w && v >= 0 && v < h) {
+          const r = parsed.colArr[i * 4];
+          const g = parsed.colArr[i * 4 + 1];
+          const b = parsed.colArr[i * 4 + 2];
+          for (let dy = 0; dy <= 1; dy++) {
+            for (let dx = 0; dx <= 1; dx++) {
+              const px = Math.min(w - 1, u + dx);
+              const py = Math.min(h - 1, v + dy);
+              const idx = (py * w + px) * 4;
+              data[idx] = r; data[idx + 1] = g; data[idx + 2] = b;
+            }
+          }
+        }
+      }
+      ctx.putImageData(img, 0, 0);
+      return c.toDataURL("image/jpeg", 0.78);
+    }
+
+    // --- テクスチャアップロード & 高速基数ソート ---
+    const textures = [gl.createTexture(), gl.createTexture(), gl.createTexture(), gl.createTexture()];
+    let currentScene = null;
+    let sortedIndices = null;
+    let sortKeys = null;
+    let countBuf = new Uint32Array(65536);
+    let lastSortDir = [99, 99, 99];
+
+    function uploadSceneTextures(scene) {
+      const { texW, texH, posArr, covAArr, covBArr, colArr, vertexCount } = scene;
+      const floatData = [posArr, covAArr, covBArr];
+      for (let t = 0; t < 3; t++) {
+        gl.activeTexture(gl.TEXTURE0 + t);
+        gl.bindTexture(gl.TEXTURE_2D, textures[t]);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+        gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA32F, texW, texH, 0, gl.RGBA, gl.FLOAT, floatData[t]);
+      }
+      gl.activeTexture(gl.TEXTURE3);
+      gl.bindTexture(gl.TEXTURE_2D, textures[3]);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+      gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, texW, texH, 0, gl.RGBA, gl.UNSIGNED_BYTE, colArr);
+
+      sortedIndices = new Uint32Array(vertexCount);
+      sortKeys = new Uint16Array(vertexCount);
+      lastSortDir = [99, 99, 99];
+    }
+
+    function sortSplats(vx, vy, vz) {
+      if (!currentScene) return;
+      const n = currentScene.vertexCount;
+      const xyz = currentScene.xyz;
+      let minD = Infinity, maxD = -Infinity;
+      const rawD = new Float32Array(n);
+
+      for (let i = 0; i < n; i++) {
+        const d = xyz[i * 3] * vx + xyz[i * 3 + 1] * vy + xyz[i * 3 + 2] * vz;
+        rawD[i] = d;
+        if (d < minD) minD = d;
+        if (d > maxD) maxD = d;
+      }
+
+      const range = Math.max(maxD - minD, 1e-5);
+      const scale = 65535.0 / range;
+      countBuf.fill(0);
+
+      for (let i = 0; i < n; i++) {
+        const k = ((rawD[i] - minD) * scale) | 0;
+        sortKeys[i] = k;
+        countBuf[k]++;
+      }
+
+      let total = 0;
+      for (let i = 0; i < 65536; i++) {
+        const c = countBuf[i];
+        countBuf[i] = total;
+        total += c;
+      }
+
+      for (let i = 0; i < n; i++) {
+        const k = sortKeys[i];
+        sortedIndices[countBuf[k]++] = i;
+      }
+
+      gl.bindBuffer(gl.ARRAY_BUFFER, indexBuf);
+      gl.bufferData(gl.ARRAY_BUFFER, sortedIndices, gl.DYNAMIC_DRAW);
+    }
+
+    // --- カメラ行列計算 ---
+    function lookAtMat4(eye, target, up) {
+      let zx = eye[0] - target[0], zy = eye[1] - target[1], zz = eye[2] - target[2];
+      let len = Math.hypot(zx, zy, zz) || 1;
+      zx /= len; zy /= len; zz /= len;
+
+      let xx = up[1] * zz - up[2] * zy;
+      let xy = up[2] * zx - up[0] * zz;
+      let xz = up[0] * zy - up[1] * zx;
+      len = Math.hypot(xx, xy, xz) || 1;
+      xx /= len; xy /= len; xz /= len;
+
+      const yx = zy * xz - zz * xy;
+      const yy = zz * xx - zx * xz;
+      const yz = zx * xy - zy * xx;
+
+      return new Float32Array([
+        xx, yx, zx, 0,
+        xy, yy, zy, 0,
+        xz, yz, zz, 0,
+        -(xx * eye[0] + xy * eye[1] + xz * eye[2]),
+        -(yx * eye[0] + yy * eye[1] + yz * eye[2]),
+        -(zx * eye[0] + zy * eye[1] + zz * eye[2]),
+        1,
+      ]);
+    }
+
+    function perspectiveMat4(fovY, aspect, near, far) {
+      const f = 1.0 / Math.tan(fovY * 0.5);
+      const nf = 1.0 / (near - far);
+      return new Float32Array([
+        f / aspect, 0, 0, 0,
+        0, f, 0, 0,
+        0, 0, (far + near) * nf, -1,
+        0, 0, 2 * far * near * nf, 0,
+      ]);
+    }
+
+    // --- UI 状態管理 & モデルリスト ---
+    const models = [];
+    let currentModelIdx = -1;
+
+    const ui = {
+      status: document.getElementById("statusBadge"),
+      hideUiBtn: document.getElementById("hideUiBtn"),
+      unhideBtn: document.getElementById("unhideBtn"),
+      panel: document.getElementById("controlPanel"),
+      emptyOverlay: document.getElementById("emptyOverlay"),
+      fileInput: document.getElementById("fileInput"),
+      thumbStrip: document.getElementById("thumbStrip"),
+      htEnable: document.getElementById("htEnable"),
+      htGain: document.getElementById("htGain"),
+      htWindow: document.getElementById("htWindow"),
+      htSmooth: document.getElementById("htSmooth"),
+      splatScale: document.getElementById("splatScale"),
+      splatOpacity: document.getElementById("splatOpacity"),
+      depthClip: document.getElementById("depthClip"),
+      spinEnable: document.getElementById("spinEnable"),
+      spinSpeed: document.getElementById("spinSpeed"),
+    };
+
+    document.getElementById("pickBtn").onclick = () => ui.fileInput.click();
+    document.getElementById("welcomePickBtn").onclick = () => ui.fileInput.click();
+
+    ui.hideUiBtn.onclick = () => {
+      ui.panel.classList.add("hidden");
+      document.getElementById("topBar").style.display = "none";
+      ui.unhideBtn.style.display = "inline-flex";
+    };
+    ui.unhideBtn.onclick = () => {
+      ui.panel.classList.remove("hidden");
+      document.getElementById("topBar").style.display = "flex";
+      ui.unhideBtn.style.display = "none";
+    };
+
+    const bindSlider = (el, labelId, fmt) => {
+      el.oninput = () => { document.getElementById(labelId).textContent = fmt(parseFloat(el.value)); };
+    };
+    bindSlider(ui.htGain, "gainVal", v => v.toFixed(2));
+    bindSlider(ui.htWindow, "winVal", v => v.toFixed(2));
+    bindSlider(ui.htSmooth, "smoothVal", v => v.toFixed(1));
+    bindSlider(ui.splatScale, "scaleVal", v => v.toFixed(2));
+    bindSlider(ui.splatOpacity, "opacityVal", v => v.toFixed(2));
+    bindSlider(ui.depthClip, "clipVal", v => `${Math.round(v)}%`);
+    bindSlider(ui.spinSpeed, "spinVal", v => v.toFixed(1));
+
+    document.getElementById("pcModeBtn").onclick = () => {
+      ui.splatScale.value = "0.15";
+      ui.splatOpacity.value = "1.50";
+      document.getElementById("scaleVal").textContent = "0.15";
+      document.getElementById("opacityVal").textContent = "1.50";
+    };
+    document.getElementById("resetFxBtn").onclick = () => {
+      ui.splatScale.value = "1.0";
+      ui.splatOpacity.value = "1.0";
+      ui.depthClip.value = "100";
+      document.getElementById("scaleVal").textContent = "1.00";
+      document.getElementById("opacityVal").textContent = "1.00";
+      document.getElementById("clipVal").textContent = "100%";
+    };
+
+    let touchYaw = 0, touchPitch = 0, touchZoom = 1.0;
+
+    function selectModel(idx) {
+      if (idx < 0 || idx >= models.length) return;
+      currentModelIdx = idx;
+      currentScene = models[idx].scene;
+      uploadSceneTextures(currentScene);
+      touchYaw = 0; touchPitch = 0; touchZoom = 1.0;
+      ui.emptyOverlay.style.display = "none";
+      document.querySelectorAll(".thumb-card").forEach((el, i) => {
+        el.classList.toggle("active", i === idx);
+      });
+    }
+
+    document.getElementById("prevBtn").onclick = () => {
+      if (models.length) selectModel((currentModelIdx - 1 + models.length) % models.length);
+    };
+    document.getElementById("nextBtn").onclick = () => {
+      if (models.length) selectModel((currentModelIdx + 1) % models.length);
+    };
+
+    ui.fileInput.onchange = async (e) => {
+      const files = Array.from(e.target.files || []);
+      if (!files.length) return;
+      const prevStatus = ui.status.textContent;
+      ui.status.textContent = "⏳ 3Dデータ読み込み中...";
+
+      for (const file of files) {
+        const buf = await file.arrayBuffer();
+        const scene = parsePlyBuffer(buf);
+        const thumbUrl = renderThumbnailDataUrl(scene);
+        const idx = models.length;
+        models.push({ name: file.name, scene, thumbUrl });
+
+        const card = document.createElement("div");
+        card.className = "thumb-card";
+        card.innerHTML = `<img src="${thumbUrl}" /><span>[${idx + 1}] ${file.name}</span>`;
+        card.onclick = () => selectModel(idx);
+        ui.thumbStrip.appendChild(card);
+
+        if (currentModelIdx === -1) selectModel(idx);
+      }
+      if (models.length > 1 && currentModelIdx === 0) selectModel(models.length - 1);
+      ui.status.textContent = prevStatus;
+      ui.fileInput.value = "";
+    };
+
+    // タッチ操作（指ドラッグ＆ピンチも併用可能）
+    let lastTouches = [];
+    canvas.addEventListener("touchstart", (e) => { lastTouches = Array.from(e.touches); }, { passive: true });
+    canvas.addEventListener("touchmove", (e) => {
+      const t = Array.from(e.touches);
+      if (t.length === 1 && lastTouches.length === 1) {
+        touchYaw += (t[0].clientX - lastTouches[0].clientX) * 0.004;
+        touchPitch = Math.max(-0.6, Math.min(0.6, touchPitch + (t[0].clientY - lastTouches[0].clientY) * 0.004));
+      } else if (t.length === 2 && lastTouches.length === 2) {
+        const d1 = Math.hypot(t[0].clientX - t[1].clientX, t[0].clientY - t[1].clientY);
+        const d0 = Math.hypot(lastTouches[0].clientX - lastTouches[1].clientX, lastTouches[0].clientY - lastTouches[1].clientY);
+        if (d0 > 0) touchZoom = Math.max(0.4, Math.min(2.5, touchZoom * (d1 / d0)));
+      }
+      lastTouches = t;
+    }, { passive: true });
+
+    // --- iPhone フロントカメラ ヘッドトラッキング ---
+    const video = document.getElementById("camVideo");
+    const euroFilter = new OneEuroFilter(30.0, 1.1, 0.07);
+    let rawEye = [0, 0, 42];
+    let eyePos = [0, 0, 42];
+    let calX = 0, calZ = 0, calDistScale = 1.0;
+    let faceDetected = false;
+
+    ui.htSmooth.addEventListener("input", () => {
+      const s = Math.max(parseFloat(ui.htSmooth.value), 0.1);
+      euroFilter.mincutoff = 1.2 / s;
+      euroFilter.beta = 0.08 / s;
+    });
+
+    function calibrateHead() {
+      calX = rawEye[0];
+      calZ = rawEye[1];
+      calDistScale = 42.0 / Math.max(rawEye[2], 12.0);
+      euroFilter.reset();
+    }
+
+    document.getElementById("calBtn").onclick = calibrateHead;
+    document.getElementById("resetViewBtn").onclick = () => {
+      calibrateHead();
+      touchYaw = 0; touchPitch = 0; touchZoom = 1.0;
+    };
+
+    async function initHeadTracking() {
+      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        ui.status.textContent = "⚠️ HTTPS環境で開くとカメラ追跡が有効になります";
+        return;
+      }
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({
+          video: { facingMode: "user", width: { ideal: 640 }, height: { ideal: 480 } },
+          audio: false,
+        });
+        video.srcObject = stream;
+        await video.play();
+
+        ui.status.textContent = "⬇️ 顔検出AIを読み込み中...";
+        const vision = await FilesetResolver.forVisionTasks(
+          "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/wasm"
+        );
+        const landmarker = await FaceLandmarker.createFromOptions(vision, {
+          baseOptions: {
+            modelAssetPath: "https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task",
+            delegate: "GPU",
+          },
+          runningMode: "VIDEO",
+          numFaces: 1,
+          minFaceDetectionConfidence: 0.35,
+          minFacePresenceConfidence: 0.35,
+          minTrackingConfidence: 0.35,
+        });
+
+        let lastVideoTime = -1;
+        const detectLoop = () => {
+          if (video.readyState >= 2 && video.currentTime !== lastVideoTime) {
+            lastVideoTime = video.currentTime;
+            const res = landmarker.detectForVideo(video, performance.now());
+            if (res.faceLandmarks && res.faceLandmarks.length > 0) {
+              const lm = res.faceLandmarks[0];
+              const w = video.videoWidth || 640;
+              const h = video.videoHeight || 480;
+              const fovRad = (68.0 * Math.PI) / 180.0;
+              const focalPx = (Math.max(w, h) * 0.5) / Math.tan(fovRad * 0.5);
+
+              let rx, ry, lx, ly;
+              if (lm.length >= 474) {
+                rx = lm[468].x * w; ry = lm[468].y * h;
+                lx = lm[473].x * w; ly = lm[473].y * h;
+              } else {
+                rx = (lm[33].x + lm[133].x) * 0.5 * w; ry = (lm[33].y + lm[133].y) * 0.5 * h;
+                lx = (lm[362].x + lm[263].x) * 0.5 * w; ly = (lm[362].y + lm[263].y) * 0.5 * h;
+              }
+
+              const pxDist = Math.hypot(rx - lx, ry - ly);
+              if (pxDist > 5.0) {
+                const distCm = (6.3 * focalPx) / pxDist;
+                const midX = (rx + lx) * 0.5;
+                const midY = (ry + ly) * 0.5;
+                const exCm = -((midX - w * 0.5) / focalPx) * distCm;
+                const ezCm = -((midY - h * 0.5) / focalPx) * distCm + 6.5;
+
+                rawEye = [exCm, ezCm, distCm];
+                const adjX = exCm - calX;
+                const adjZ = ezCm - calZ;
+                const adjDist = Math.min(110, Math.max(18, distCm * calDistScale));
+                eyePos = euroFilter.filter([adjX, adjZ, adjDist]);
+                faceDetected = true;
+                ui.status.textContent = `🟢 追跡中 (${Math.round(eyePos[2])}cm)`;
+              }
+            } else {
+              faceDetected = false;
+              ui.status.textContent = "🟡 顔を探しています...";
+            }
+          }
+          requestAnimationFrame(detectLoop);
+        };
+        requestAnimationFrame(detectLoop);
+      } catch (err) {
+        ui.status.textContent = "⚠️ カメラ未許可（指操作で3D表示可能）";
+      }
+    }
+
+    initHeadTracking();
+
+    // --- メイン描画ループ ---
+    let spinAngle = 0;
+    const BASE_FOV = 0.85;
+
+    function renderLoop() {
+      const dpr = Math.min(window.devicePixelRatio || 1, 2);
+      const dispW = Math.floor(window.innerWidth * dpr);
+      const dispH = Math.floor(window.innerHeight * dpr);
+      if (canvas.width !== dispW || canvas.height !== dispH) {
+        canvas.width = dispW;
+        canvas.height = dispH;
+      }
+
+      gl.viewport(0, 0, dispW, dispH);
+      gl.clearColor(0.04, 0.05, 0.07, 1.0);
+      gl.clear(gl.COLOR_BUFFER_BIT);
+
+      if (currentScene) {
+        const ty = currentScene.medianDepth;
+        const winDepth = ty * parseFloat(ui.htWindow.value);
+        let camX = 0, camY = 0, camZ = 0;
+        let lookX = 0, lookY = 0, lookZ = -winDepth;
+        let fov = BASE_FOV / touchZoom;
+
+        if (ui.spinEnable.checked) {
+          spinAngle += 0.03 * parseFloat(ui.spinSpeed.value);
+          camX = Math.sin(spinAngle) * (ty * 0.25);
+          camY = Math.sin(spinAngle * 0.5) * (ty * 0.1);
+          lookZ = -ty;
+        } else if (ui.htEnable.checked && faceDetected) {
+          const [ex, ez, dist] = eyePos;
+          const gain = parseFloat(ui.htGain.value);
+          const scaleToScene = (winDepth / 42.0) * gain;
+          camX = ex * scaleToScene;
+          camY = ez * scaleToScene;
+
+          const distRatio = dist / 42.0;
+          camZ = -winDepth * (1.0 - distRatio);
+          fov = Math.min(1.65, Math.max(0.35, 2.0 * Math.atan(Math.tan(BASE_FOV * 0.5) / Math.max(distRatio, 0.35))));
+        }
+
+        // タッチ回転の反映
+        if (Math.abs(touchYaw) > 1e-4 || Math.abs(touchPitch) > 1e-4) {
+          const r = winDepth;
+          camX += Math.sin(touchYaw) * r * 0.5;
+          camY += Math.sin(touchPitch) * r * 0.5;
+        }
+
+        const dirX = lookX - camX;
+        const dirY = lookY - camY;
+        const dirZ = lookZ - camZ;
+        const dLen = Math.hypot(dirX, dirY, dirZ) || 1;
+        const nx = dirX / dLen, ny = dirY / dLen, nz = dirZ / dLen;
+
+        if (Math.hypot(nx - lastSortDir[0], ny - lastSortDir[1], nz - lastSortDir[2]) > 0.008) {
+          lastSortDir = [nx, ny, nz];
+          sortSplats(nx, ny, nz);
+        }
+
+        const aspect = dispW / Math.max(dispH, 1);
+        const proj = perspectiveMat4(fov, aspect, 0.05, 100.0);
+        const view = lookAtMat4([camX, camY, camZ], [lookX, lookY, lookZ], [0, 1, 0]);
+        const fy = (dispH * 0.5) / Math.tan(fov * 0.5);
+
+        const clipPct = parseFloat(ui.depthClip.value);
+        const clipIdx = Math.min(
+          currentScene.sortedDists.length - 1,
+          Math.floor((currentScene.sortedDists.length - 1) * (clipPct / 100.0))
+        );
+        const maxDist = currentScene.sortedDists[clipIdx] || 999.0;
+
+        gl.uniformMatrix4fv(uLoc.view, false, view);
+        gl.uniformMatrix4fv(uLoc.proj, false, proj);
+        gl.uniform2f(uLoc.focal, fy, fy);
+        gl.uniform2f(uLoc.viewport, dispW, dispH);
+        gl.uniform1f(uLoc.splatScale, parseFloat(ui.splatScale.value));
+        gl.uniform1f(uLoc.opacityMult, parseFloat(ui.splatOpacity.value));
+        gl.uniform1f(uLoc.maxDist, maxDist);
+
+        gl.bindVertexArray(vao);
+        gl.drawArraysInstanced(gl.TRIANGLE_STRIP, 0, 4, currentScene.vertexCount);
+      }
+
+      requestAnimationFrame(renderLoop);
+    }
+
+    requestAnimationFrame(renderLoop);
+  </script>
+</body>
+</html>
